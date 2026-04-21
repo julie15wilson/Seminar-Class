@@ -23,7 +23,7 @@ library(car)
 library(plm)
 library(readr)
 library(broom)
-
+library(kableExtra)
 
 library(corrplot)
 
@@ -597,7 +597,7 @@ pdim(df_panel)
 
 ```
 
-```{r}
+```{r model_existence}
 
 df_panel$policy_group <- factor(df_panel$policy_group,
                                 levels = c("Total Ban",
@@ -669,7 +669,7 @@ exists("snap_ols")
 exists("abort_ols")
 ```
 
-```{r}
+```{r full_twfe_model}
 
 # TANF Applications
 modelsummary(list("Pooled OLS" = tanf_apps_ols,
@@ -714,4 +714,109 @@ modelsummary(list("Pooled OLS" = abort_ols,
              output = "kableExtra") %>%
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
                             full_width = TRUE)
+```
+
+### Event study plots 
+
+```{r event_study}
+
+# Step 1: Prepare data for event study
+df_event <- df_all %>%
+  filter(!is.na(policy_group)) %>%
+  mutate(
+    treated = if_else(policy_group == "Total Ban", 1, 0),
+    event_time_binned = case_when(
+      months_since_dobbs < -2 ~ -2,
+      months_since_dobbs > 24 ~ 24,
+      TRUE ~ as.numeric(months_since_dobbs)
+    )
+  )
+
+# ============================================================
+# EVENT STUDY FUNCTION
+# ============================================================
+run_event_study <- function(outcome_var, title, ylab, color) {
+  
+  formula <- as.formula(paste0(outcome_var, " ~
+    i(event_time_binned, treated, ref = -1) +
+    state_unemployment_rate +
+    minimum_wage +
+    CPI +
+    medicaid_abortion_funding_restrictions +
+    infant_child_care_cost_burden +
+    RPP_all_items |
+    State + year_month"))
+  
+  model <- feols(formula, data = df_event, cluster = ~State)
+  
+  coefs <- broom::tidy(model, conf.int = TRUE) %>%
+    filter(grepl("event_time_binned::", term)) %>%
+    mutate(event_time = as.numeric(gsub("event_time_binned::([-0-9]+):treated",
+                                        "\\1", term)))
+  
+  ref_row <- data.frame(
+    term = "reference", estimate = 0, std.error = 0,
+    conf.low = 0, conf.high = 0, event_time = -1
+  )
+  
+  coefs <- bind_rows(coefs, ref_row) %>% arrange(event_time)
+  
+  ggplot(coefs, aes(x = event_time, y = estimate)) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+    geom_vline(xintercept = -0.5, linetype = "dashed", color = "red",
+               linewidth = 0.8) +
+    geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+                alpha = 0.2, fill = color) +
+    geom_line(color = color, linewidth = 1) +
+    geom_point(color = color, size = 2.5) +
+    annotate("text", x = 0, y = Inf, label = "Dobbs Decision",
+             hjust = -0.1, vjust = 2, color = "red", size = 3.5) +
+    scale_x_continuous(breaks = seq(-2, 24, by = 2)) +
+    labs(
+      title    = title,
+      subtitle = "TWFE Estimates Relative to Month Before Dobbs (t = -1)",
+      x        = "Months Since Dobbs (0 = June 2022)",
+      y        = ylab,
+      caption  = "Note: Shaded region represents 95% confidence interval. Standard errors clustered at state level."
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title       = element_text(size = 13, face = "bold"),
+      plot.subtitle    = element_text(size = 10, color = "gray40"),
+      plot.caption     = element_text(size = 8,  color = "gray50"),
+      plot.margin      = margin(10, 10, 10, 40),
+      panel.grid.minor = element_blank()
+    )
+}
+
+# ============================================================
+# RUN ALL 4 EVENT STUDIES
+# ============================================================
+run_event_study(
+  outcome_var = "abortions_per_1000_women_ages_1544",
+  title       = "Event Study: Effect of Abortion Restrictions on Abortion Rate",
+  ylab        = "Estimated Effect on Abortion Rate per 1,000 Women (15-44)",
+  color       = "#d73027"
+)
+
+run_event_study(
+  outcome_var = "tanf._apps_per_1000",
+  title       = "Event Study: Effect of Abortion Restrictions on TANF Applications",
+  ylab        = "Estimated Effect on TANF Applications per 1,000 Women (15-44)",
+  color       = "#fc8d59"
+)
+
+run_event_study(
+  outcome_var = "tanf_one_parent_per1000_women_1544",
+  title       = "Event Study: Effect of Abortion Restrictions on TANF Caseloads",
+  ylab        = "Estimated Effect on TANF Caseloads per 1,000 Women (15-44)",
+  color       = "#4575b4"
+)
+
+run_event_study(
+  outcome_var = "snap_participation_rate",
+  title       = "Event Study: Effect of Abortion Restrictions on SNAP Participation",
+  ylab        = "Estimated Effect on SNAP Participation Rate",
+  color       = "#1a9850"
+)
 ```
