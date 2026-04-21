@@ -1,0 +1,716 @@
+---
+title: "Seminar Presentation"
+author: "Julie Wilson"
+format: html
+editor: visual
+---
+
+## Load Packages
+
+```{r load_packages}
+
+library("pacman")
+library("tidyverse")
+library("maps")
+library(dplyr)
+library(did)
+library(bacondecomp)
+library(fixest)
+library(modelsummary)
+library(infer)
+library(ggplot2)
+library(car)
+library(plm)
+library(readr)
+library(broom)
+
+
+library(corrplot)
+
+library(stargazer)
+
+knitr::opts_knit$set(root.dir = "C:/Users/julie/Downloads/Seminar research/even more r/Final_seminar")
+```
+
+## Import Data
+
+```{r data_import}
+
+df_all <- read.csv("C:/Users/julie/Downloads/Seminar research/even more r/Final_seminar/all_data.csv")
+names(df_all)
+nrow(df_all)
+```
+
+### Checking for missing data
+
+```{r missing_data_check}
+
+# Check for missing data in df_all
+sum(is.na(df_all))
+colSums(is.na(df_all))
+```
+
+### creating policy groups
+
+```{r creating_policy_groups}
+df_all$policy_group <- ifelse(state_min[df_all$State] == 0, "Total Ban",
+                       ifelse(state_min[df_all$State] <= 6, "Severely Restrictive",
+                       ifelse(state_min[df_all$State] <= 12, "Moderately Restrictive",
+                       ifelse(state_min[df_all$State] <= 18, "Moderately Permissive",
+                       "Permissive"))))
+
+# Check
+table(df_all$policy_group)
+state_policy_map <- unique(df_all[, c("State", "policy_group")])
+split(state_policy_map$State, state_policy_map$policy_group)
+
+
+```
+
+## Descriptive stats
+
+-   Abortion Rate per 1,000 women 15-44
+
+<!-- -->
+
+-   TANF Applications per 1,000 women 15-44
+
+<!-- -->
+
+-   TANF Caseloads per 1,000 women 15-44
+
+<!-- -->
+
+-   SNAP Participation per 1,000 women 15-44
+
+<!-- -->
+
+-   Single Mother Median Monthly Income
+
+<!-- -->
+
+-   Unemployment Rate
+
+<!-- -->
+
+-   Minimum Wage
+
+<!-- -->
+
+-   Childcare Cost Burden
+
+<!-- -->
+
+-   Medicaid Abortion Funding Restrictions
+
+```{r descriptive_stats}
+
+names(df_all)[grepl("tanf|snap|abort|income|unemploy|wage|child", 
+                     names(df_all), ignore.case = TRUE)]
+
+desc_stats <- df_all %>%
+  filter(!is.na(policy_group)) %>%
+  mutate(period = if_else(months_since_dobbs < 0, "Pre-Dobbs", "Post-Dobbs")) %>%
+  group_by(policy_group, period) %>%
+  summarize(
+    mean_abortion_rate     = mean(abortions_per_1000_women_ages_1544,          na.rm = TRUE),
+    mean_tanf_apps         = mean(tanf._apps_per_1000,                         na.rm = TRUE),
+    mean_tanf_caseloads    = mean(tanf_one_parent_per1000_women_1544,          na.rm = TRUE),
+    mean_snap              = mean(snap_participation_rate,                      na.rm = TRUE),
+    mean_single_mom_income = mean(single_mothers_median_monthly_income,        na.rm = TRUE),
+    mean_unemployment      = mean(state_unemployment_rate,                     na.rm = TRUE),
+    mean_min_wage          = mean(minimum_wage,                                na.rm = TRUE),
+    mean_childcare         = mean(infant_child_care_cost_burden,               na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(across(where(is.numeric), ~ round(., 2))) %>%
+  arrange(policy_group, period)
+
+desc_stats$policy_group <- factor(desc_stats$policy_group, 
+                                   levels = c("Total Ban", 
+                                              "Severely Restrictive", 
+                                              "Moderately Restrictive", 
+                                              "Moderately Permissive", 
+                                              "Permissive"))
+
+desc_stats <- desc_stats %>% arrange(policy_group, period)
+
+# Then re-split
+pre_dobbs <- desc_stats %>% filter(period == "Pre-Dobbs") %>% select(-period)
+post_dobbs <- desc_stats %>% filter(period == "Post-Dobbs") %>% select(-period)
+knitr::kable(desc_stats,
+  col.names = c("Policy Group", "Period",
+                "Abortion Rate", "TANF Applications",
+                "TANF Caseloads", "SNAP Participation",
+                "Single Mom Monthly Income", "Unemployment Rate",
+                "Minimum Wage", "Childcare Cost Burden"),
+  caption = "Descriptive Statistics by Policy Group Pre and Post Dobbs") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                            full_width = TRUE) %>%
+  kableExtra::row_spec(which(desc_stats$period == "Pre-Dobbs"),
+                       background = "#fff3cd") %>%  # yellow = Pre-Dobbs
+  kableExtra::row_spec(which(desc_stats$period == "Post-Dobbs"),
+                       background = "#cce5ff")       # blue = Post-Dobbs
+
+# Split into two tables
+pre_dobbs <- desc_stats %>% filter(period == "Pre-Dobbs") %>% select(-period)
+post_dobbs <- desc_stats %>% filter(period == "Post-Dobbs") %>% select(-period)
+
+# Pre-Dobbs table
+knitr::kable(pre_dobbs,
+  col.names = c("Policy Group",
+                "Abortion Rate", "TANF Apps",
+                "TANF Caseloads", "SNAP Participation",
+                "Single Mom Income", "Unemployment Rate",
+                "Minimum Wage", "Childcare Burden"),
+  caption = "Pre-Dobbs Descriptive Statistics by Policy Group") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                            full_width = TRUE) %>%
+  kableExtra::row_spec(0, background = "#fff3cd", bold = TRUE)  # yellow header
+
+# Post-Dobbs table
+knitr::kable(post_dobbs,
+  col.names = c("Policy Group",
+                "Abortion Rate", "TANF Apps",
+                "TANF Caseloads", "SNAP Participation",
+                "Single Mom Income", "Unemployment Rate",
+                "Minimum Wage", "Childcare Burden"),
+  caption = "Post-Dobbs Descriptive Statistics by Policy Group") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                            full_width = TRUE) %>%
+  kableExtra::row_spec(0, background = "#cce5ff", bold = TRUE)  # blue header
+
+
+```
+
+Since adjusting policy groups, medicaid abortion funding restrictions and medicaid expansion was dropped because it showed no change pre and post dobbs.
+
+### Testing for multicollinearity
+
+```{r multicollinearity_check}
+# Select the variables you want to test
+corr_vars <- df_all %>%
+  select(abortions_per_1000_women_ages_1544,
+         tanf._apps_per_1000,
+         tanf_one_parent_per1000_women_1544,
+         snap_participation_rate,
+         single_mothers_median_monthly_income,
+         state_unemployment_rate,
+         minimum_wage,
+         infant_child_care_cost_burden,
+         medicaid_abortion_funding_restrictions,
+         medicaid_expansion_status) %>%
+  na.omit()
+
+# Correlation matrix
+cor_matrix <- cor(corr_vars)
+round(cor_matrix, 2)
+
+# Visual correlation matrix (optional but easier to read)
+library(corrplot)
+corrplot(cor_matrix, method = "color", type = "upper",
+         tl.cex = 0.7, tl.col = "black",
+         addCoef.col = "black", number.cex = 0.6)
+```
+
+## Parallel Trends Credibility Check
+
+-   Fundamental identification assumption for Difference-in-Differences (DiD) model, which posits that in the absence of the *Dobbs* decision, treatment and control states would have followed similar economic trajectories.
+
+##### TANF Caseloads
+
+```{r parallel_trends_check}
+df_parallel <- df_all %>%
+  filter(!is.na(policy_group),
+         months_since_dobbs >= -3,
+         months_since_dobbs <= 0) %>%
+  group_by(months_since_dobbs, policy_group) %>%
+  summarize(
+    mean_tanf = mean(tanf_one_parent_per1000_women_1544, na.rm = TRUE),
+    se_tanf   = sd(tanf_one_parent_per1000_women_1544, na.rm = TRUE) /
+                sqrt(n()),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    ci_low  = mean_tanf - 1.96 * se_tanf,
+    ci_high = mean_tanf + 1.96 * se_tanf,
+    policy_group = factor(policy_group,
+                          levels = c("Total Ban",
+                                     "Severely Restrictive",
+                                     "Moderately Restrictive",
+                                     "Moderately Permissive",
+                                     "Permissive"))
+  )
+
+ggplot(df_parallel,
+       aes(x = months_since_dobbs, y = mean_tanf,
+           color = policy_group, fill = policy_group)) +
+  geom_ribbon(aes(ymin = ci_low, ymax = ci_high),
+              alpha = 0.2, color = NA) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  geom_vline(xintercept = 0,
+             linetype = "dashed",
+             color = "red",
+             linewidth = 0.8) +
+  annotate("text",
+           x = -0.1, y = Inf,
+           label = "Dobbs Decision",
+           hjust = 1, vjust = 2,
+           color = "red",
+           size = 3.5) +
+  scale_color_manual(values = c(
+    "Total Ban"              = "#d73027",   # red
+    "Severely Restrictive"   = "#fc8d59",   # orange
+    "Moderately Restrictive" = "#fee090",   # yellow
+    "Moderately Permissive"  = "#91bfdb",   # light blue
+    "Permissive"             = "#4575b4"    # dark blue
+  )) +
+  scale_fill_manual(values = c(
+    "Total Ban"              = "#d73027",
+    "Severely Restrictive"   = "#fc8d59",
+    "Moderately Restrictive" = "#fee090",
+    "Moderately Permissive"  = "#91bfdb",
+    "Permissive"             = "#4575b4"
+  )) +
+  scale_x_continuous(breaks = c(-3, -2, -1, 0)) +
+  labs(
+    title    = "Parallel Trends Check - Pre-Dobbs TANF Caseloads",
+    x        = "Months Since Dobbs (0 = June 2022)",
+    y        = "TANF Cases per 1,000 Women (15-44)",
+    color    = "Policy Group",
+    fill     = "Policy Group"
+  ) +
+  theme_minimal() +
+  theme(plot.margin = margin(10, 10, 10, 40))
+```
+
+##### Abortion Rate and Snap Participation
+
+```{r parallel_trends_abortion_rate}
+# Parallel Trends Check - Abortion Rate
+df_parallel_abort <- df_all %>%
+  filter(!is.na(policy_group),
+         months_since_dobbs >= -3,
+         months_since_dobbs <= 0) %>%
+  group_by(months_since_dobbs, policy_group) %>%
+  summarize(
+    mean_outcome = mean(abortions_per_1000_women_ages_1544, na.rm = TRUE),
+    se_outcome   = sd(abortions_per_1000_women_ages_1544, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    ci_low  = mean_outcome - 1.96 * se_outcome,
+    ci_high = mean_outcome + 1.96 * se_outcome,
+    policy_group = factor(policy_group,
+                          levels = c("Total Ban", "Severely Restrictive",
+                                     "Moderately Restrictive", "Moderately Permissive",
+                                     "Permissive"))
+  )
+
+# Parallel Trends Check - SNAP
+df_parallel_snap <- df_all %>%
+  filter(!is.na(policy_group),
+         months_since_dobbs >= -3,
+         months_since_dobbs <= 0) %>%
+  group_by(months_since_dobbs, policy_group) %>%
+  summarize(
+    mean_outcome = mean(snap_participation_rate, na.rm = TRUE),
+    se_outcome   = sd(snap_participation_rate, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    ci_low  = mean_outcome - 1.96 * se_outcome,
+    ci_high = mean_outcome + 1.96 * se_outcome,
+    policy_group = factor(policy_group,
+                          levels = c("Total Ban", "Severely Restrictive",
+                                     "Moderately Restrictive", "Moderately Permissive",
+                                     "Permissive"))
+  )
+
+# Plot function to avoid repeating code
+plot_parallel <- function(data, title, ylab) {
+  ggplot(data, aes(x = months_since_dobbs, y = mean_outcome,
+                   color = policy_group, fill = policy_group)) +
+    geom_ribbon(aes(ymin = ci_low, ymax = ci_high), alpha = 0.2, color = NA) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 3) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "red", linewidth = 0.8) +
+    annotate("text", x = -0.1, y = Inf, label = "Dobbs Decision",
+             hjust = 1, vjust = 2, color = "red", size = 3.5) +
+    scale_color_manual(values = c(
+      "Total Ban"              = "#d73027",
+      "Severely Restrictive"   = "#fc8d59",
+      "Moderately Restrictive" = "#fee090",
+      "Moderately Permissive"  = "#91bfdb",
+      "Permissive"             = "#4575b4"
+    )) +
+    scale_fill_manual(values = c(
+      "Total Ban"              = "#d73027",
+      "Severely Restrictive"   = "#fc8d59",
+      "Moderately Restrictive" = "#fee090",
+      "Moderately Permissive"  = "#91bfdb",
+      "Permissive"             = "#4575b4"
+    )) +
+    scale_x_continuous(breaks = c(-3, -2, -1, 0)) +
+    labs(title = title, x = "Months Since Dobbs (0 = June 2022)",
+         y = ylab, color = "Policy Group", fill = "Policy Group") +
+    theme_minimal() +
+    theme(plot.margin = margin(10, 10, 10, 40))
+}
+
+# Generate plots
+plot_parallel(df_parallel_abort,
+              "Parallel Trends Check - Pre-Dobbs Abortion Rate",
+              "Abortions per 1,000 Women (15-44)")
+
+plot_parallel(df_parallel_snap,
+              "Parallel Trends Check - Pre-Dobbs SNAP Participation",
+              "SNAP Participation Rate")
+```
+
+##### TANF Apps
+
+```{r tanf_apps_prallel}
+df_parallel_tanf_apps <- df_all %>%
+  filter(!is.na(policy_group),
+         months_since_dobbs >= -3,
+         months_since_dobbs <= 0) %>%
+  group_by(months_since_dobbs, policy_group) %>%
+  summarize(
+    mean_outcome = mean(tanf._apps_per_1000, na.rm = TRUE),
+    se_outcome   = sd(tanf._apps_per_1000, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    ci_low  = mean_outcome - 1.96 * se_outcome,
+    ci_high = mean_outcome + 1.96 * se_outcome,
+    policy_group = factor(policy_group,
+                          levels = c("Total Ban", "Severely Restrictive",
+                                     "Moderately Restrictive", "Moderately Permissive",
+                                     "Permissive"))
+  )
+
+plot_parallel(df_parallel_tanf_apps,
+              "Parallel Trends Check - Pre-Dobbs TANF Applications",
+              "TANF Applications per 1,000 Women (15-44)")
+```
+
+### Variables by State Policy Group
+
+```{r by_state_policy_group}
+# Abortion Rate - Full Timeline
+df_all %>%
+  filter(!is.na(policy_group)) %>%
+  group_by(months_since_dobbs, policy_group) %>%
+  summarize(mean_outcome = mean(abortions_per_1000_women_ages_1544, na.rm = TRUE), 
+            .groups = "drop") %>%
+  mutate(policy_group = factor(policy_group,
+                               levels = c("Total Ban", "Severely Restrictive",
+                                          "Moderately Restrictive", "Moderately Permissive",
+                                          "Permissive"))) %>%
+  ggplot(aes(x = months_since_dobbs, y = mean_outcome, color = policy_group)) +
+  geom_line(linewidth = 1) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  annotate("text", x = 0.5, y = Inf, label = "Dobbs Decision",
+           hjust = 0, vjust = 2, color = "red", size = 3.5) +
+  scale_color_manual(values = c(
+    "Total Ban"              = "#d73027",
+    "Severely Restrictive"   = "#fc8d59",
+    "Moderately Restrictive" = "#fee090",
+    "Moderately Permissive"  = "#91bfdb",
+    "Permissive"             = "#4575b4"
+  )) +
+  labs(title = "Abortion Rate by Policy Group Over Time",
+       x = "Months Since Dobbs (0 = June 2022)",
+       y = "Abortions per 1,000 Women (15-44)",
+       color = "Policy Group") +
+  theme_minimal() +
+  theme(plot.margin = margin(10, 10, 10, 40))
+
+ # SNAP Participation - Full Timeline
+df_all %>%
+  filter(!is.na(policy_group)) %>%
+  group_by(months_since_dobbs, policy_group) %>%
+  summarize(mean_outcome = mean(snap_participation_rate, na.rm = TRUE), 
+            .groups = "drop") %>%
+  mutate(policy_group = factor(policy_group,
+                               levels = c("Total Ban", "Severely Restrictive",
+                                          "Moderately Restrictive", "Moderately Permissive",
+                                          "Permissive"))) %>%
+  ggplot(aes(x = months_since_dobbs, y = mean_outcome, color = policy_group)) +
+  geom_line(linewidth = 1) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  annotate("text", x = 0.5, y = Inf, label = "Dobbs Decision",
+           hjust = 0, vjust = 2, color = "red", size = 3.5) +
+  scale_color_manual(values = c(
+    "Total Ban"              = "#d73027",
+    "Severely Restrictive"   = "#fc8d59",
+    "Moderately Restrictive" = "#fee090",
+    "Moderately Permissive"  = "#91bfdb",
+    "Permissive"             = "#4575b4"
+  )) +
+  labs(title = "SNAP Participation by Policy Group Over Time",
+       x = "Months Since Dobbs (0 = June 2022)",
+       y = "SNAP Participation Rate",
+       color = "Policy Group") +
+  theme_minimal() +
+  theme(plot.margin = margin(10, 10, 10, 40))
+
+# TANF Caseloads - Full Timeline
+df_all %>%
+  filter(!is.na(policy_group)) %>%
+  group_by(months_since_dobbs, policy_group) %>%
+  summarize(mean_outcome = mean(tanf_one_parent_per1000_women_1544, na.rm = TRUE), 
+            .groups = "drop") %>%
+  mutate(policy_group = factor(policy_group,
+                               levels = c("Total Ban", "Severely Restrictive",
+                                          "Moderately Restrictive", "Moderately Permissive",
+                                          "Permissive"))) %>%
+  ggplot(aes(x = months_since_dobbs, y = mean_outcome, color = policy_group)) +
+  geom_line(linewidth = 1) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  annotate("text", x = 0.5, y = Inf, label = "Dobbs Decision",
+           hjust = 0, vjust = 2, color = "red", size = 3.5) +
+  scale_color_manual(values = c(
+    "Total Ban"              = "#d73027",
+    "Severely Restrictive"   = "#fc8d59",
+    "Moderately Restrictive" = "#fee090",
+    "Moderately Permissive"  = "#91bfdb",
+    "Permissive"             = "#4575b4"
+  )) +
+  labs(title = "TANF Caseloads by Policy Group Over Time",
+       x = "Months Since Dobbs (0 = June 2022)",
+       y = "TANF Cases per 1,000 Women (15-44)",
+       color = "Policy Group") +
+  theme_minimal() +
+  theme(plot.margin = margin(10, 10, 10, 40))
+```
+
+```{r cpi_adjusted}
+# Abortion Rate - CPI Adjusted, Indexed to Pre-Dobbs Baseline
+df_all %>%
+  filter(!is.na(policy_group)) %>%
+  mutate(outcome_adjusted = abortions_per_1000_women_ages_1544 / CPI * 100) %>%
+  group_by(months_since_dobbs, policy_group) %>%
+  summarize(mean_outcome = mean(outcome_adjusted, na.rm = TRUE), .groups = "drop") %>%
+  group_by(policy_group) %>%
+  mutate(baseline = mean(mean_outcome[months_since_dobbs < 0], na.rm = TRUE),
+         mean_indexed = mean_outcome - baseline,
+         policy_group = factor(policy_group,
+                               levels = c("Total Ban", "Severely Restrictive",
+                                          "Moderately Restrictive", "Moderately Permissive",
+                                          "Permissive"))) %>%
+  ggplot(aes(x = months_since_dobbs, y = mean_indexed, color = policy_group)) +
+  geom_line(linewidth = 1) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  annotate("text", x = 0.5, y = Inf, label = "Dobbs Decision",
+           hjust = 0, vjust = 2, color = "red", size = 3.5) +
+  scale_color_manual(values = c(
+    "Total Ban"              = "#d73027",
+    "Severely Restrictive"   = "#fc8d59",
+    "Moderately Restrictive" = "#fee090",
+    "Moderately Permissive"  = "#91bfdb",
+    "Permissive"             = "#4575b4"
+  )) +
+  labs(title = "Abortion Rate by State Policy Group - Pre and Post Dobbs",
+       x = "Months Since Dobbs (0 = June 2022)",
+       y = "Change in Abortion Rate from Pre-Dobbs Baseline (CPI Adjusted)",
+       color = "Policy Group") +
+  theme_minimal() +
+  theme(plot.margin = margin(10, 10, 10, 40))
+
+# SNAP Participation - CPI Adjusted, Indexed to Pre-Dobbs Baseline
+df_all %>%
+  filter(!is.na(policy_group)) %>%
+  mutate(outcome_adjusted = snap_participation_rate / CPI * 100) %>%
+  group_by(months_since_dobbs, policy_group) %>%
+  summarize(mean_outcome = mean(outcome_adjusted, na.rm = TRUE), .groups = "drop") %>%
+  group_by(policy_group) %>%
+  mutate(baseline = mean(mean_outcome[months_since_dobbs < 0], na.rm = TRUE),
+         mean_indexed = mean_outcome - baseline,
+         policy_group = factor(policy_group,
+                               levels = c("Total Ban", "Severely Restrictive",
+                                          "Moderately Restrictive", "Moderately Permissive",
+                                          "Permissive"))) %>%
+  ggplot(aes(x = months_since_dobbs, y = mean_indexed, color = policy_group)) +
+  geom_line(linewidth = 1) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  annotate("text", x = 0.5, y = Inf, label = "Dobbs Decision",
+           hjust = 0, vjust = 2, color = "red", size = 3.5) +
+  scale_color_manual(values = c(
+    "Total Ban"              = "#d73027",
+    "Severely Restrictive"   = "#fc8d59",
+    "Moderately Restrictive" = "#fee090",
+    "Moderately Permissive"  = "#91bfdb",
+    "Permissive"             = "#4575b4"
+  )) +
+  labs(title = "SNAP Participation by State Policy Group - Pre and Post Dobbs",
+       x = "Months Since Dobbs (0 = June 2022)",
+       y = "Change in SNAP Participation from Pre-Dobbs Baseline (CPI Adjusted)",
+       color = "Policy Group") +
+  theme_minimal() +
+  theme(plot.margin = margin(10, 10, 10, 40))
+
+# TANF Caseloads - CPI Adjusted, Indexed to Pre-Dobbs Baseline
+df_all %>%
+  filter(!is.na(policy_group)) %>%
+  mutate(outcome_adjusted = tanf_one_parent_per1000_women_1544 / CPI * 100) %>%
+  group_by(months_since_dobbs, policy_group) %>%
+  summarize(mean_outcome = mean(outcome_adjusted, na.rm = TRUE), .groups = "drop") %>%
+  group_by(policy_group) %>%
+  mutate(baseline = mean(mean_outcome[months_since_dobbs < 0], na.rm = TRUE),
+         mean_indexed = mean_outcome - baseline,
+         policy_group = factor(policy_group,
+                               levels = c("Total Ban", "Severely Restrictive",
+                                          "Moderately Restrictive", "Moderately Permissive",
+                                          "Permissive"))) %>%
+  ggplot(aes(x = months_since_dobbs, y = mean_indexed, color = policy_group)) +
+  geom_line(linewidth = 1) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  annotate("text", x = 0.5, y = Inf, label = "Dobbs Decision",
+           hjust = 0, vjust = 2, color = "red", size = 3.5) +
+  scale_color_manual(values = c(
+    "Total Ban"              = "#d73027",
+    "Severely Restrictive"   = "#fc8d59",
+    "Moderately Restrictive" = "#fee090",
+    "Moderately Permissive"  = "#91bfdb",
+    "Permissive"             = "#4575b4"
+  )) +
+  labs(title = "TANF Caseloads by State Policy Group - Pre and Post Dobbs",
+       x = "Months Since Dobbs (0 = June 2022)",
+       y = "Change in TANF Caseloads from Pre-Dobbs Baseline (CPI Adjusted)",
+       color = "Policy Group") +
+  theme_minimal() +
+  theme(plot.margin = margin(10, 10, 10, 40))
+```
+
+```{r panel_df_creation}
+
+# Create panel data frame
+df_panel <- pdata.frame(df_all, index = c("State", "year_month"))
+
+# Verify it worked
+exists("df_panel")
+pdim(df_panel)
+
+```
+
+```{r}
+
+df_panel$policy_group <- factor(df_panel$policy_group,
+                                levels = c("Total Ban",
+                                           "Severely Restrictive",
+                                           "Moderately Restrictive",
+                                           "Moderately Permissive",
+                                           "Permissive"))
+
+# TANF Applications
+tanf_apps_ols      <- plm(tanf._apps_per_1000 ~ policy_group,
+                          data = df_panel, model = "pooling")
+tanf_apps_controls <- plm(tanf._apps_per_1000 ~ policy_group +
+                            state_unemployment_rate + minimum_wage + CPI +
+                            medicaid_abortion_funding_restrictions +
+                            infant_child_care_cost_burden + RPP_all_items,
+                          data = df_panel, model = "pooling")
+tanf_apps_twfe     <- plm(tanf._apps_per_1000 ~ policy_group +
+                            state_unemployment_rate + minimum_wage + CPI +
+                            medicaid_abortion_funding_restrictions +
+                            infant_child_care_cost_burden + RPP_all_items,
+                          data = df_panel, model = "within", effect = "twoways")
+
+# TANF Caseloads
+tanf_cases_ols      <- plm(tanf_one_parent_per1000_women_1544 ~ policy_group,
+                           data = df_panel, model = "pooling")
+tanf_cases_controls <- plm(tanf_one_parent_per1000_women_1544 ~ policy_group +
+                             state_unemployment_rate + minimum_wage + CPI +
+                             medicaid_abortion_funding_restrictions +
+                             infant_child_care_cost_burden + RPP_all_items,
+                           data = df_panel, model = "pooling")
+tanf_cases_twfe     <- plm(tanf_one_parent_per1000_women_1544 ~ policy_group +
+                             state_unemployment_rate + minimum_wage + CPI +
+                             medicaid_abortion_funding_restrictions +
+                             infant_child_care_cost_burden + RPP_all_items,
+                           data = df_panel, model = "within", effect = "twoways")
+
+# SNAP
+snap_ols      <- plm(snap_participation_rate ~ policy_group,
+                     data = df_panel, model = "pooling")
+snap_controls <- plm(snap_participation_rate ~ policy_group +
+                       state_unemployment_rate + minimum_wage + CPI +
+                       medicaid_abortion_funding_restrictions +
+                       infant_child_care_cost_burden + RPP_all_items,
+                     data = df_panel, model = "pooling")
+snap_twfe     <- plm(snap_participation_rate ~ policy_group +
+                       state_unemployment_rate + minimum_wage + CPI +
+                       medicaid_abortion_funding_restrictions +
+                       infant_child_care_cost_burden + RPP_all_items,
+                     data = df_panel, model = "within", effect = "twoways")
+
+# Abortion Rate
+abort_ols      <- plm(abortions_per_1000_women_ages_1544 ~ policy_group,
+                      data = df_panel, model = "pooling")
+abort_controls <- plm(abortions_per_1000_women_ages_1544 ~ policy_group +
+                        state_unemployment_rate + minimum_wage + CPI +
+                        medicaid_abortion_funding_restrictions +
+                        infant_child_care_cost_burden + RPP_all_items,
+                      data = df_panel, model = "pooling")
+abort_twfe     <- plm(abortions_per_1000_women_ages_1544 ~ policy_group +
+                        state_unemployment_rate + minimum_wage + CPI +
+                        medicaid_abortion_funding_restrictions +
+                        infant_child_care_cost_burden + RPP_all_items,
+                      data = df_panel, model = "within", effect = "twoways")
+
+# Verify all models exist
+exists("tanf_apps_ols")
+exists("tanf_cases_ols")
+exists("snap_ols")
+exists("abort_ols")
+```
+
+```{r}
+
+# TANF Applications
+modelsummary(list("Pooled OLS" = tanf_apps_ols,
+                  "With Controls" = tanf_apps_controls,
+                  "Full TWFE" = tanf_apps_twfe),
+             title = "TANF Applications per 1,000 Women (15-44)",
+             stars = TRUE,
+             gof_map = c("nobs", "r.squared", "adj.r.squared"),
+             output = "kableExtra") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                            full_width = TRUE)
+
+# TANF Caseloads
+modelsummary(list("Pooled OLS" = tanf_cases_ols,
+                  "With Controls" = tanf_cases_controls,
+                  "Full TWFE" = tanf_cases_twfe),
+             title = "TANF Caseloads per 1,000 Women (15-44)",
+             stars = TRUE,
+             gof_map = c("nobs", "r.squared", "adj.r.squared"),
+             output = "kableExtra") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                            full_width = TRUE)
+
+# SNAP Participation
+modelsummary(list("Pooled OLS" = snap_ols,
+                  "With Controls" = snap_controls,
+                  "Full TWFE" = snap_twfe),
+             title = "SNAP Participation per 1,000 Women (15-44)",
+             stars = TRUE,
+             gof_map = c("nobs", "r.squared", "adj.r.squared"),
+             output = "kableExtra") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                            full_width = TRUE)
+
+# Abortion Rate
+modelsummary(list("Pooled OLS" = abort_ols,
+                  "With Controls" = abort_controls,
+                  "Full TWFE" = abort_twfe),
+             title = "Abortion Rate per 1,000 Women (15-44)",
+             stars = TRUE,
+             gof_map = c("nobs", "r.squared", "adj.r.squared"),
+             output = "kableExtra") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                            full_width = TRUE)
+```
