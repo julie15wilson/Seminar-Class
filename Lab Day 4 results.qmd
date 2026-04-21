@@ -1,0 +1,149 @@
+---
+title: "Lab Day 4_JWilson"
+format: html
+editor: visual
+---
+
+## Load Packages
+
+```{r load_packages}
+
+library(wooldridge)
+
+
+library(pandoc) 
+library(modelsummary)
+library(flextable)
+library(officer)
+
+library(plm)
+```
+
+## Load Data
+
+```{r import_data}
+
+setwd("C:/Users/julie/Downloads/Seminar research/more r studio/Seminar research/Seminar_Preliminary")
+
+final_data <- read.csv("final_data.csv")
+
+```
+
+## Data Cleaning
+
+```{r data_cleaning}
+# Fix all variables stored as text with symbols — strip and convert to numeric
+final_data$snap_participation_rate <- as.numeric(gsub("%", "", final_data$snap_participation_rate))
+final_data$infant_child_care_cost_burden <- as.numeric(gsub("%", "", final_data$infant_child_care_cost_burden))
+final_data$telehealth_share <- as.numeric(gsub("%", "", final_data$telehealth_share))
+final_data$single_mothers_median_monthly_income <- as.numeric(gsub("[$,]", "", final_data$single_mothers_median_monthly_income))
+final_data$minimum_wage <- as.numeric(gsub("[$,]", "", final_data$minimum_wage))
+
+# Create numeric time index for panel data
+final_data$time <- as.numeric(factor(final_data$year_month))
+
+# Convert categorical variables to factors
+final_data$medicaid_expansion_status <- as.factor(final_data$medicaid_expansion_status)
+final_data$shield_law_state <- as.factor(final_data$shield_law_state)
+final_data$medicaid_abortion_funding_restrictions <- as.factor(final_data$medicaid_abortion_funding_restrictions)
+```
+
+## Pooled OLS
+
+```{r pooled_ols}
+pooled_model <- lm(abortions_per_1000_women_ages_1544 ~ 
+                     months_since_dobbs +
+                     snap_participation_rate +
+                     tanf_one_parent_per1000_women_1544 +
+                     CPI +
+                     medicaid_expansion_status +
+                     infant_child_care_cost_burden +
+                     single_mothers_median_monthly_income +
+                     state_unemployment_rate +
+                     minimum_wage +
+                     gestational_limit_weeks +
+                     telehealth_share +
+                     shield_law_state +
+                     RPP_all_items,
+                   data = final_data)
+
+summary(pooled_model)
+```
+
+## First Difference
+
+```{r first_difference}
+
+# Declare panel structure
+panel_data <- pdata.frame(final_data, index = c("State", "time"))
+
+# First Difference model
+fd_model <- plm(abortions_per_1000_women_ages_1544 ~ 
+                  months_since_dobbs +
+                  snap_participation_rate +
+                  tanf_one_parent_per1000_women_1544 +
+                  CPI +
+                  infant_child_care_cost_burden +
+                  single_mothers_median_monthly_income +
+                  state_unemployment_rate +
+                  minimum_wage +
+                  gestational_limit_weeks +
+                  telehealth_share +
+                  RPP_all_items,
+                data = panel_data,
+                model = "fd")
+
+print(summary(fd_model))
+
+```
+
+## Output table
+
+```{r output_table}
+n_models <- 2
+
+tbl <- modelsummary(
+  list("Pooled OLS" = pooled_model, "First Difference" = fd_model),
+  output = "flextable",
+  stars = c("*" = 0.1, "**" = 0.05, "***" = 0.01),
+  gof_map = c("nobs", "r.squared", "adj.r.squared"),
+  estimate  = "{estimate}{stars}",
+  statistic = "({std.error})",
+  title = "Table 1: Economic Effects of Abortion Restrictions Post-Dobbs",
+  notes = "Standard errors in parentheses. * p<0.1, ** p<0.05, *** p<0.01"
+)
+
+# Add column numbers above model names
+col_numbers <- c("", paste0("(", seq_len(n_models), ")"))
+
+tbl <- flextable::set_header_labels(
+  tbl,
+  values = setNames(
+    paste0("(", seq_len(n_models), ")"),
+    paste0("Model ", seq_len(n_models))
+  )
+)
+
+tbl <- flextable::add_header_row(tbl, values = col_numbers, colwidths = rep(1, n_models + 1), top = TRUE)
+
+# Horizontal line below Adj. R2
+n_rows <- nrow(tbl$body$dataset)
+tbl <- flextable::hline(
+  tbl,
+  i = n_rows,
+  border = fp_border(color = "black", width = 1),
+  part = "body"
+)
+
+# Horizontal line below table note
+tbl <- flextable::hline_bottom(
+  tbl,
+  border = fp_border(color = "black", width = 1),
+  part = "footer"
+)
+
+tbl <- flextable::set_table_properties(tbl, width = 1, layout = "autofit")
+
+# Save to Word — update path to your folder
+save_as_docx(tbl, path = "C:/Users/julie/Downloads/Seminar research/more r studio/Seminar research/Seminar_Preliminary/abortion_results.docx")
+```
