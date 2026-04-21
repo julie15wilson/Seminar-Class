@@ -1,0 +1,87 @@
+---
+title: "Seminar Presentation"
+author: "Julie Wilson"
+format: html
+editor: visual
+---
+
+## Load Packages
+
+```{r load_packages}
+
+library("pacman")
+library("tidyverse")
+library("maps")
+library(dplyr)
+library(did)
+library(bacondecomp)
+library(fixest)
+library(modelsummary)
+library(infer)
+library(ggplot2)
+library(car)
+library(plm)
+library(readr)
+library(broom)
+```
+
+## Import Data
+
+```{r data_import}
+
+df_all <- read.csv("C:\\Users\\julie\\Downloads\\Seminar research\\more r studio\\Final_seminar\\all_data.csv")
+
+
+glimpse(df_all)
+```
+
+### Checking for missing data
+
+```{r missing_data_check}
+
+
+sum(is.na(df_all))
+
+colSums(is.na(df_all))
+
+df_missing_data <- colSums(is.na(df_all))
+
+which(is.na(df_all), arr.ind = TRUE)
+
+df_all <-  df_prelim[-1651, ]
+
+sum(is.na(df_all))
+```
+
+### creating policy groups
+
+```{r creating_policy_groups}
+# Recreate df_all cleanly (removes the broken policy_group from the bad merge)
+df_all <- df_all[, !names(df_all) %in% "policy_group"]
+
+# Assign policy group directly using the lookup
+state_min <- tapply(df_all$gestational_limit_weeks, df_all$State, min)
+
+df_all$policy_group <- ifelse(state_min[df_all$State] == 0, "Total Ban",
+                       ifelse(state_min[df_all$State] <= 6, "Severely Restrictive",
+                       ifelse(state_min[df_all$State] <= 12, "Moderately Restrictive",
+                       ifelse(state_min[df_all$State] <= 18, "Moderately Permissive",
+                       "Permissive"))))
+
+# Check
+table(df_all$policy_group)
+nrow(df_all)  # should match your original row count
+
+# Get unique state-to-policy_group mapping (no duplicates)
+state_policy_map <- unique(df_all[, c("State", "policy_group")])
+
+# Sort and print
+state_policy_map <- state_policy_map[order(state_policy_map$policy_group, state_policy_map$State), ]
+print(state_policy_map)
+
+# Count of states per group (not rows)
+table(state_policy_map$policy_group)
+
+# See states listed by group
+split(state_policy_map$State, state_policy_map$policy_group)
+```
