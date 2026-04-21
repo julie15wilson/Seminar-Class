@@ -53,6 +53,7 @@ colSums(is.na(df_all))
 ### creating policy groups
 
 ```{r creating_policy_groups}
+state_min <- tapply(df_all$gestational_limit_weeks, df_all$State, min)
 df_all$policy_group <- ifelse(state_min[df_all$State] == 0, "Total Ban",
                        ifelse(state_min[df_all$State] <= 6, "Severely Restrictive",
                        ifelse(state_min[df_all$State] <= 12, "Moderately Restrictive",
