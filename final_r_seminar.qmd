@@ -68,9 +68,193 @@ split(state_policy_map$State, state_policy_map$policy_group)
 
 ```
 
+```{r mod perm}
+
+library(dplyr)
+library(ggplot2)
+library(maps)
+
+class(df_all)
+
+df_all$policy_group <- ifelse(state_min[df_all$State] == 0, "Total Ban",
+                       ifelse(state_min[df_all$State] <= 6, "Severely Restrictive",
+                       ifelse(state_min[df_all$State] <= 12, "Moderately Restrictive",
+                       ifelse(state_min[df_all$State] <= 18, "Moderately Permissive",
+                       "Permissive"))))
+class(df_all)
+str(df_all)
+
+df_all <- df_all %>%
+  mutate(policy_group = case_when(
+    state_min[State] == 0 ~ "Total Ban",
+    state_min[State] <= 6 ~ "Severely Restrictive",
+    state_min[State] <= 12 ~ "Moderately Restrictive",
+    state_min[State] <= 18 ~ "Moderately Permissive",
+    TRUE ~ "Permissive"
+  ))
+
+df_all <- df_all%>%
+  mutate(
+    State = trimws(toupper(State)), 
+    region = tolower(state.name[match(State, state.abb)])
+  )
+
+df_all %>% filter(is.na(region)) %>% select(State)
+
+library(ggplot2)
+library(maps)
+
+
+ggplot() +
+
+  # base US map
+  geom_map(data = us_map, map = us_map,
+           aes(map_id = region),
+           fill = "gray90", color = "black") +
+
+  # your highlighted group (example)
+  geom_map(data = df_all %>% filter(policy_group == "Moderately Permissive"),
+           map = us_map,
+           aes(map_id = region),
+           fill = "#91bfdb", color = "black") +
+  theme_void()+
+
+  # ALL state labels
+  geom_text(
+    data = state_centers,
+    aes(x = lon, y = lat, label = abb),
+    size = 2
+  ) +
+  
+
+  expand_limits(x = us_map$long, y = us_map$lat) +
+  labs(title = "Moderately Permissive States")
+
+
+
+
+
+```
+
+```{r total ban map}
+
+ggplot() +
+  
+  # base US map
+  geom_map(data = us_map, map = us_map,
+           aes(map_id = region),
+           fill = "gray90", color = "black") +
+  
+  # highlight Total Ban states
+  geom_map(
+    data = df_all %>% filter(policy_group == "Total Ban"),
+    map = us_map,
+    aes(map_id = region),
+    fill = "#d73027", color = "black"
+  ) +
+  
+  # state abbreviations
+  geom_text(
+    data = state_centers,
+    aes(x = lon, y = lat, label = abb),
+    size = 2
+  ) +
+  
+  expand_limits(x = us_map$long, y = us_map$lat) +
+  theme_void() +
+  labs(title = "Total Ban States")
+```
+
+```{r sev restricted map}
+
+ggplot() +
+  
+  # base US map
+  geom_map(data = us_map, map = us_map,
+           aes(map_id = region),
+           fill = "gray90", color = "black") +
+  
+  # highlight Severely Restrictive states
+  geom_map(
+    data = df_all %>% filter(policy_group == "Severely Restrictive"),
+    map = us_map,
+    aes(map_id = region),
+    fill = "#fc8d59", color = "black"
+  ) +
+  
+  # state abbreviations
+  geom_text(
+    data = state_centers,
+    aes(x = lon, y = lat, label = abb),
+    size = 2
+  ) +
+  
+  expand_limits(x = us_map$long, y = us_map$lat) +
+  theme_void() +
+  labs(title = "Severely Restrictive States")
+```
+
+```{r mod restrict map}
+
+ggplot() +
+  
+  # base US map
+  geom_map(data = us_map, map = us_map,
+           aes(map_id = region),
+           fill = "gray90", color = "black") +
+  
+  # highlight Moderately Restrictive states
+  geom_map(
+    data = df_all %>% filter(policy_group == "Moderately Restrictive"),
+    map = us_map,
+    aes(map_id = region),
+    fill = "#fee090", color = "black"
+  ) +
+  
+  # state abbreviations
+  geom_text(
+    data = state_centers,
+    aes(x = lon, y = lat, label = abb),
+    size = 2
+  ) +
+  
+  expand_limits(x = us_map$long, y = us_map$lat) +
+  theme_void() +
+  labs(title = "Moderately Restrictive States")
+```
+
+```{r perm map}
+
+ggplot() +
+  
+  # base US map
+  geom_map(data = us_map, map = us_map,
+           aes(map_id = region),
+           fill = "gray90", color = "black") +
+  
+  # highlight Permissive states
+  geom_map(
+    data = df_all %>% filter(policy_group == "Permissive"),
+    map = us_map,
+    aes(map_id = region),
+    fill = "#4575b4", color = "black"
+  ) +
+  
+  # state abbreviations
+  geom_text(
+    data = state_centers,
+    aes(x = lon, y = lat, label = abb),
+    size = 2
+  ) +
+  
+  expand_limits(x = us_map$long, y = us_map$lat) +
+  theme_void() +
+  labs(title = "Permissive States")
+```
+
 ## Descriptive stats
 
--   Abortion Rate per 1,000 women 15-44
+-    Abortion Rate per 1,000 women 15-44
 
 <!-- -->
 
@@ -488,6 +672,40 @@ df_all %>%
   theme(plot.margin = margin(10, 10, 10, 40))
 ```
 
+```{r tanf app by group}
+# TANF Applications - CPI Adjusted, Indexed to Pre-Dobbs Baseline
+df_all %>%
+  filter(!is.na(policy_group)) %>%
+  mutate(outcome_adjusted = tanf._apps_per_1000 / CPI * 100) %>%
+  group_by(months_since_dobbs, policy_group) %>%
+  summarize(mean_outcome = mean(outcome_adjusted, na.rm = TRUE), .groups = "drop") %>%
+  group_by(policy_group) %>%
+  mutate(baseline = mean(mean_outcome[months_since_dobbs < 0], na.rm = TRUE),
+         mean_indexed = mean_outcome - baseline,
+         policy_group = factor(policy_group,
+                               levels = c("Total Ban", "Severely Restrictive",
+                                          "Moderately Restrictive", "Moderately Permissive",
+                                          "Permissive"))) %>%
+  ggplot(aes(x = months_since_dobbs, y = mean_indexed, color = policy_group)) +
+  geom_line(linewidth = 1) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  annotate("text", x = 0.5, y = Inf, label = "Dobbs Decision",
+           hjust = 0, vjust = 2, color = "red", size = 3.5) +
+  scale_color_manual(values = c(
+    "Total Ban"              = "#d73027",
+    "Severely Restrictive"   = "#fc8d59",
+    "Moderately Restrictive" = "#fee090",
+    "Moderately Permissive"  = "#91bfdb",
+    "Permissive"             = "#4575b4"
+  )) +
+  labs(title = "TANF Applications by State Policy Group - Pre and Post Dobbs",
+       x = "Months Since Dobbs (0 = June 2022)",
+       y = "Change in TANF Applications from Pre-Dobbs Baseline (CPI Adjusted)",
+       color = "Policy Group") +
+  theme_minimal() +
+  theme(plot.margin = margin(10, 10, 10, 40))
+```
+
 ```{r cpi_adjusted}
 # Abortion Rate - CPI Adjusted, Indexed to Pre-Dobbs Baseline
 df_all %>%
@@ -716,7 +934,7 @@ modelsummary(list("Pooled OLS" = abort_ols,
                             full_width = TRUE)
 ```
 
-### Event study plots 
+### Event study plots
 
 ```{r event_study}
 
@@ -724,7 +942,7 @@ modelsummary(list("Pooled OLS" = abort_ols,
 df_event <- df_all %>%
   filter(!is.na(policy_group)) %>%
   mutate(
-    treated = if_else(policy_group == "Total Ban", 1, 0),
+    treated = ifelse(policy_group == "Total Ban", 1, 0),
     event_time_binned = case_when(
       months_since_dobbs < -2 ~ -2,
       months_since_dobbs > 24 ~ 24,
@@ -792,6 +1010,29 @@ run_event_study <- function(outcome_var, title, ylab, color) {
 # ============================================================
 # RUN ALL 4 EVENT STUDIES
 # ============================================================
+
+
+
+
+
+state_min <- as.vector(tapply(df_all$gestational_limit_weeks, df_all$State, min))
+names(state_min) <- names(tapply(df_all$gestational_limit_weeks, df_all$State, min))
+
+df_event <- df_all %>%
+  filter(!is.na(policy_group)) %>%
+  mutate(
+    treated = if_else(as.character(policy_group) == "Total Ban", 1, 0),
+    event_time_binned = as.numeric(case_when(
+      months_since_dobbs < -2 ~ -2,
+      months_since_dobbs > 24 ~ 24,
+      TRUE ~ as.numeric(months_since_dobbs)
+    ))
+  )
+
+# Verify
+class(df_event$event_time_binned)
+is.vector(df_event$event_time_binned)
+
 run_event_study(
   outcome_var = "abortions_per_1000_women_ages_1544",
   title       = "Event Study: Effect of Abortion Restrictions on Abortion Rate",
