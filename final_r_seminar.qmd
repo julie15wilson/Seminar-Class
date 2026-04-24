@@ -74,6 +74,8 @@ library(dplyr)
 library(ggplot2)
 library(maps)
 
+
+
 class(df_all)
 
 df_all$policy_group <- ifelse(state_min[df_all$State] == 0, "Total Ban",
@@ -81,18 +83,18 @@ df_all$policy_group <- ifelse(state_min[df_all$State] == 0, "Total Ban",
                        ifelse(state_min[df_all$State] <= 12, "Moderately Restrictive",
                        ifelse(state_min[df_all$State] <= 18, "Moderately Permissive",
                        "Permissive"))))
-class(df_all)
-str(df_all)
-
 df_all <- df_all %>%
-  mutate(policy_group = case_when(
-    state_min[State] == 0 ~ "Total Ban",
-    state_min[State] <= 6 ~ "Severely Restrictive",
-    state_min[State] <= 12 ~ "Moderately Restrictive",
-    state_min[State] <= 18 ~ "Moderately Permissive",
-    TRUE ~ "Permissive"
-  ))
-
+  mutate(
+    State = trimws(toupper(State)),
+    policy_group = case_when(
+      as.vector(state_min[State]) == 0 ~ "Total Ban",
+      as.vector(state_min[State]) <= 6 ~ "Severely Restrictive",
+      as.vector(state_min[State]) <= 12 ~ "Moderately Restrictive",
+      as.vector(state_min[State]) <= 18 ~ "Moderately Permissive",
+      TRUE ~ "Permissive"
+    ),
+    region = tolower(state.name[match(State, state.abb)])
+)
 df_all <- df_all%>%
   mutate(
     State = trimws(toupper(State)), 
@@ -103,7 +105,16 @@ df_all %>% filter(is.na(region)) %>% select(State)
 
 library(ggplot2)
 library(maps)
+library(dplyr)
 
+us_map <- map_data("state")
+
+state_centers <- data.frame(
+  region = tolower(state.name),
+  abb = state.abb,
+  lon = state.center$x,
+  lat = state.center$y
+)
 
 ggplot() +
 
@@ -128,7 +139,9 @@ ggplot() +
   
 
   expand_limits(x = us_map$long, y = us_map$lat) +
+  theme_void() +
   labs(title = "Moderately Permissive States")
+  
 
 
 
@@ -254,7 +267,7 @@ ggplot() +
 
 ## Descriptive stats
 
--    Abortion Rate per 1,000 women 15-44
+-   Abortion Rate per 1,000 women 15-44
 
 <!-- -->
 
