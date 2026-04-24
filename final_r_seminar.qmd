@@ -947,6 +947,12 @@ modelsummary(list("Pooled OLS" = abort_ols,
                             full_width = TRUE)
 ```
 
+```{r checking factor levels }
+levels(as.factor(df_all$policy_group))
+```
+
+###### Keep Total Ban as baseline and interpret everything relative to it
+
 ### Event study plots
 
 ```{r event_study}
