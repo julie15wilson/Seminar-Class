@@ -381,6 +381,59 @@ knitr::kable(post_dobbs,
 
 ```
 
+```{r new descriptive stats table}
+desc_stats <- df_all %>%
+  filter(!is.na(policy_group)) %>%
+  mutate(period = if_else(months_since_dobbs < 0, "Pre-Dobbs", "Post-Dobbs")) %>%
+  group_by(policy_group, period) %>%
+  summarize(
+    mean_abortion_rate     = mean(abortions_per_1000_women_ages_1544,       na.rm = TRUE),
+    mean_tanf_apps         = mean(tanf._apps_per_1000,                      na.rm = TRUE),
+    mean_tanf_caseloads    = mean(tanf_one_parent_per1000_women_1544,       na.rm = TRUE),
+    mean_snap              = mean(snap_participation_rate,                   na.rm = TRUE),
+    mean_single_mom_income = mean(single_mothers_median_monthly_income,     na.rm = TRUE),
+    mean_unemployment      = mean(state_unemployment_rate,                  na.rm = TRUE),
+    mean_min_wage          = mean(minimum_wage,                             na.rm = TRUE),
+    mean_childcare         = mean(infant_child_care_cost_burden,            na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(across(where(is.numeric), ~ round(., 2))) %>%
+  mutate(policy_group = factor(policy_group,
+                               levels = c("Total Ban",
+                                          "Severely Restrictive",
+                                          "Moderately Restrictive",
+                                          "Moderately Permissive",
+                                          "Permissive")),
+         period = factor(period, levels = c("Pre-Dobbs", "Post-Dobbs"))) %>%
+  arrange(policy_group, period)
+
+knitr::kable(desc_stats,
+  col.names = c("Policy Group", "Period", "Abort. Rate", "TANF Apps",
+                "TANF Cases", "SNAP", "Income",
+                "Unemp.", "Min. Wage", "Childcare"),
+  caption = "Descriptive Statistics by Policy Group Pre and Post Dobbs") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "condensed"),
+                            full_width = FALSE,
+                            font_size = 11) %>%
+  # Total Ban
+  kableExtra::row_spec(1, background = "#fddbc7") %>%  # Pre-Dobbs
+  kableExtra::row_spec(2, background = "#fddbc7") %>%  # Post-Dobbs
+  # Severely Restrictive
+  kableExtra::row_spec(3, background = "#f4a582") %>%
+  kableExtra::row_spec(4, background = "#f4a582") %>%
+  # Moderately Restrictive
+  kableExtra::row_spec(5, background = "#ffffbf") %>%
+  kableExtra::row_spec(6, background = "#ffffbf") %>%
+  # Moderately Permissive
+  kableExtra::row_spec(7, background = "#d1e5f0") %>%
+  kableExtra::row_spec(8, background = "#d1e5f0") %>%
+  # Permissive
+  kableExtra::row_spec(9,  background = "#92c5de") %>%
+  kableExtra::row_spec(10, background = "#92c5de") %>%
+  # Bold the Pre-Dobbs rows
+  kableExtra::row_spec(c(1, 3, 5, 7, 9),  bold = TRUE)
+```
+
 Since adjusting policy groups, medicaid abortion funding restrictions and medicaid expansion was dropped because it showed no change pre and post dobbs.
 
 ### Testing for multicollinearity
