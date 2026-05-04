@@ -1,0 +1,33 @@
+---
+title: "Map Attempt"
+author: "Julie Wilson"
+format: html
+editor: visual
+---
+
+# Introduction
+
+## Load Packages
+
+```{r load_packages}
+
+install.packages("pacman")
+library("pacman")
+pacman::p_load(tidyverse, maps, sf, viridis)
+
+install.packages("tidyverse")
+library("tidyverse")
+
+install.packages("maps")
+library("maps")
+```
+
+## Import Data
+
+```{r import_data}
+getwd()
+read.csv("Final_data.csv")
+read.csv("population.csv")
+
+list.files()
+```
